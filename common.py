@@ -15,6 +15,10 @@ APP_DIR = Path(__file__).parent
 LEAGUE_DATA_PATH = APP_DIR / "data.json"
 MATCHES_DIR = APP_DIR / "data" / "matches"
 MATCHES_DIR.mkdir(parents=True, exist_ok=True)
+LOGOS_DIR = APP_DIR / "assets" / "logos"
+LOGOS_DIR.mkdir(parents=True, exist_ok=True)
+GENERATED_BADGES_DIR = APP_DIR / "assets" / "badges_generated"
+GENERATED_BADGES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Column names that might hold the coach/manager, checked case-insensitively.
 COACH_COLUMN_CANDIDATES = ["TeamManager", "Team Manager", "Manager", "Entrenador", "Coach", "teamManager"]
@@ -435,6 +439,18 @@ def render_match_selection_sidebar(team_name, matches, key_prefix):
 # ---------------------------------------------------------------------------
 # Selector de equipo + panel de actualización semanal (compartido por Rival/Propio)
 # ---------------------------------------------------------------------------
+def render_mode_toggle(key_prefix):
+    """Total / Por 90' toggle. Returns 'p90' or 'total'."""
+    choice = st.radio(
+        "Modo de visualización", ["Por partido (P90)", "Total del periodo"],
+        horizontal=True, key=f"{key_prefix}_mode_toggle",
+        help="'Por partido' promedia cada métrica entre los partidos seleccionados "
+             "(cada partido ya son ~90 minutos). 'Total' suma el valor bruto de todos "
+             "los partidos seleccionados. Los porcentajes siempre se muestran como media.",
+    )
+    return "p90" if choice == "Por partido (P90)" else "total"
+
+
 def render_team_picker_and_updater(key_prefix):
     team_files = list_team_files()
     if not team_files:
@@ -488,32 +504,43 @@ def render_team_picker_and_updater(key_prefix):
 # de cada métrica de la categoría junto a su ranking real en LaLiga (cuando existe
 # comparativa de liga para esa métrica).
 # ---------------------------------------------------------------------------
-def render_metric_category_report(matches, league_benchmarks, key_prefix):
+def render_metric_category_report(matches, league_benchmarks, key_prefix, mode="p90"):
     """Shows every metric in the chosen category as (valor, percentil, ranking en LaLiga)
-    for the currently selected matches. Purely informative — does not filter anything."""
+    for the currently selected matches. Purely informative — does not filter anything.
+
+    mode='p90'   -> average per match (each row is already ~90 minutes).
+    mode='total' -> sum across all selected matches (percentages are still averaged,
+                    since summing a percentage doesn't mean anything).
+    """
     import statistics as _stats
 
     cat = st.selectbox("Categoría de métricas", CAT_ORDER,
                         format_func=lambda c: CAT_LABELS[c], key=f"{key_prefix}_filtercat")
     metrics_in_cat = [m for m in METRICS if m[3] == cat]
     n_benchmarked_in_cat = sum(1 for m in metrics_in_cat if m[0] in league_benchmarks)
+    mode_label = "por partido (P90)" if mode == "p90" else "total del periodo seleccionado"
     st.caption(f"{len(metrics_in_cat)} métricas en esta categoría ({n_benchmarked_in_cat} con "
-               f"comparativa de liga) · calculadas sobre {len(matches)} partidos seleccionados. "
-               f"La comparativa de liga sale de los partidos reales de los 20 equipos de LaLiga.")
+               f"comparativa de liga) · valores {mode_label} sobre {len(matches)} partidos "
+               f"seleccionados. La comparativa de liga sale de los partidos reales de los 20 "
+               f"equipos de LaLiga y siempre se calcula sobre el promedio por partido.")
 
     rows = []
     for key, col, label, c, is_pct in metrics_in_cat:
         vals = [m["metrics"].get(key) for m in matches if m["metrics"].get(key) is not None]
         if not vals:
             continue
-        avg_val = _stats.mean(vals)
+        agg_val = _stats.mean(vals) if (mode == "p90" or is_pct) else sum(vals)
         meta = CAT_BY_KEY[key]
-        row = {"Métrica": label, "Valor": fmt_value(avg_val, meta)}
+        row = {"Métrica": label, "Valor": fmt_value(agg_val, meta)}
         bench = league_benchmarks.get(key)
-        if bench:
+        if bench and (mode == "p90" or is_pct):
+            avg_val = _stats.mean(vals)
             rank, n, percentile = value_to_rank(avg_val, bench["values"])
             row["Percentil"] = percentile
             row["Ranking en LaLiga"] = f"{rank}º de {n}"
+        elif bench:
+            row["Percentil"] = None
+            row["Ranking en LaLiga"] = "ranking disponible en modo 'Por partido (P90)'"
         else:
             row["Percentil"] = None
             row["Ranking en LaLiga"] = "sin comparativa de liga"

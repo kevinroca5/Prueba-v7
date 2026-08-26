@@ -5,7 +5,7 @@ import streamlit as st
 from common import (
     CAT_BY_KEY, CAT_LABELS, CAT_ORDER, METRICS, get_combined_league_benchmarks,
     render_team_picker_and_updater, render_match_selection_sidebar,
-    render_metric_category_report,
+    render_metric_category_report, render_mode_toggle,
 )
 
 st.set_page_config(page_title="Análisis Propio — LaLiga", layout="wide", page_icon="🔵")
@@ -32,11 +32,13 @@ with st.expander("Ver partidos seleccionados"):
 
 st.divider()
 
+mode = render_mode_toggle(key_prefix="propio")
+
 st.subheader("📊 Métricas por categoría (con ranking en LaLiga)")
-st.caption("Ofensivas, Defensivas, Posesión y General. Muestra el valor medio de cada "
-           "métrica en los partidos seleccionados y su ranking real entre los 20 equipos "
-           "de LaLiga.")
-render_metric_category_report(selected_matches, league_benchmarks, key_prefix="propio")
+st.caption("Ofensivas, Defensivas, Posesión y General. Muestra el valor de cada métrica "
+           "en los partidos seleccionados (total o por partido, según el modo elegido "
+           "arriba) y su ranking real entre los 20 equipos de LaLiga.")
+render_metric_category_report(selected_matches, league_benchmarks, key_prefix="propio", mode=mode)
 
 st.divider()
 
