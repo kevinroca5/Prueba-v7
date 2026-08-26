@@ -5,7 +5,7 @@ import streamlit as st
 from common import (
     CAT_BY_KEY, CAT_LABELS, CAT_ORDER, METRICS, fmt_value, value_to_rank,
     compute_league_benchmarks, render_team_picker_and_updater,
-    render_match_selection_sidebar, render_metric_filter_panel,
+    render_match_selection_sidebar, render_metric_category_report,
 )
 
 st.set_page_config(page_title="Análisis Rival — LaLiga", layout="wide", page_icon="🔴")
@@ -38,17 +38,11 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Filtros por métrica (Ofensivas / Defensivas / General / Posesión)
 # ---------------------------------------------------------------------------
-st.subheader("🎚️ Filtrar partidos por métrica")
-st.caption("Además de fecha/local-visitante/entrenador (barra lateral), puedes acotar por "
-           "rango de valores dentro de cada categoría. Ej.: solo partidos con posesión en "
-           "campo rival por encima de cierto umbral.")
-selected_matches = render_metric_filter_panel(selected_matches, key_prefix="rival")
-
-if not selected_matches:
-    st.warning("Ningún partido cumple estos rangos de filtro.")
-    st.stop()
-
-st.caption(f"**{len(selected_matches)}** partidos cumplen todos los filtros.")
+st.subheader("📊 Métricas por categoría (con ranking en LaLiga)")
+st.caption("Ofensivas, Defensivas, Posesión y General. No filtra partidos — muestra el "
+           "valor medio de cada métrica en los partidos seleccionados y su ranking real "
+           "entre los 20 equipos de LaLiga.")
+render_metric_category_report(selected_matches, league_benchmarks, key_prefix="rival")
 
 st.divider()
 
@@ -76,13 +70,6 @@ headline_cols = st.columns(len(HEADLINE_KEYS))
 for i, key in enumerate(HEADLINE_KEYS):
     meta = CAT_BY_KEY[key]
     headline_cols[i].metric(meta["label"], fmt_value(avg_metric(key), meta))
-
-with st.expander("Ver todas las métricas de la categoría General (incluye goles y puntos)"):
-    general_metrics = [m for m in METRICS if m[3] == "general"]
-    gcols = st.columns(4)
-    for i, (key, col, label, cat, is_pct) in enumerate(general_metrics):
-        meta = CAT_BY_KEY[key]
-        gcols[i % 4].metric(label, fmt_value(avg_metric(key), meta))
 
 st.divider()
 

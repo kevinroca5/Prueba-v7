@@ -3,8 +3,9 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from common import (
-    CAT_BY_KEY, CAT_LABELS, CAT_ORDER, METRICS, render_team_picker_and_updater,
-    render_match_selection_sidebar, render_metric_filter_panel,
+    CAT_BY_KEY, CAT_LABELS, CAT_ORDER, METRICS, compute_league_benchmarks,
+    render_team_picker_and_updater, render_match_selection_sidebar,
+    render_metric_category_report,
 )
 
 st.set_page_config(page_title="Análisis Propio — LaLiga", layout="wide", page_icon="🔵")
@@ -13,6 +14,7 @@ st.title("🔵 Análisis Propio")
 st.caption("Cómo va evolucionando tu equipo partido a partido, en las métricas que elijas.")
 
 team_name, matches, has_coach_column = render_team_picker_and_updater(key_prefix="propio")
+league_benchmarks = compute_league_benchmarks()
 selected_matches, total_matches = render_match_selection_sidebar(team_name, matches, key_prefix="propio")
 if not selected_matches:
     st.warning("No hay partidos seleccionados con estos filtros.")
@@ -30,12 +32,11 @@ with st.expander("Ver partidos seleccionados"):
 
 st.divider()
 
-st.subheader("🎚️ Filtrar partidos por métrica")
-selected_matches = render_metric_filter_panel(selected_matches, key_prefix="propio")
-if not selected_matches:
-    st.warning("Ningún partido cumple estos rangos de filtro.")
-    st.stop()
-st.caption(f"**{len(selected_matches)}** partidos cumplen todos los filtros.")
+st.subheader("📊 Métricas por categoría (con ranking en LaLiga)")
+st.caption("Ofensivas, Defensivas, Posesión y General. Muestra el valor medio de cada "
+           "métrica en los partidos seleccionados y su ranking real entre los 20 equipos "
+           "de LaLiga.")
+render_metric_category_report(selected_matches, league_benchmarks, key_prefix="propio")
 
 st.divider()
 

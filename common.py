@@ -396,30 +396,45 @@ def render_team_picker_and_updater(key_prefix):
 
     return team_name, matches, has_coach_column
 # ---------------------------------------------------------------------------
-def render_metric_filter_panel(matches, key_prefix):
-    """Lets the user pick a category and narrow the match list further with range
-    sliders on that category's metrics. Returns the filtered match list."""
-    cat = st.selectbox("Categoría de métricas para filtrar", CAT_ORDER,
+# Panel de métricas por categoría: NO filtra partidos, solo muestra el valor medio
+# de cada métrica de la categoría junto a su ranking real en LaLiga (cuando existe
+# comparativa de liga para esa métrica).
+# ---------------------------------------------------------------------------
+def render_metric_category_report(matches, league_benchmarks, key_prefix):
+    """Shows every metric in the chosen category as (valor, percentil, ranking en LaLiga)
+    for the currently selected matches. Purely informative — does not filter anything."""
+    import statistics as _stats
+
+    cat = st.selectbox("Categoría de métricas", CAT_ORDER,
                         format_func=lambda c: CAT_LABELS[c], key=f"{key_prefix}_filtercat")
     metrics_in_cat = [m for m in METRICS if m[3] == cat]
-    st.caption(f"{len(metrics_in_cat)} métricas en esta categoría")
+    st.caption(f"{len(metrics_in_cat)} métricas en esta categoría · calculadas sobre "
+               f"{len(matches)} partidos seleccionados")
 
-    mask = [True] * len(matches)
-    with st.expander(f"Rangos de filtro — {CAT_LABELS[cat]}", expanded=False):
-        for key, col, label, c, is_pct in metrics_in_cat:
-            vals = [m["metrics"].get(key) for m in matches if m["metrics"].get(key) is not None]
-            if not vals:
-                continue
-            lo, hi = float(min(vals)), float(max(vals))
-            if lo == hi:
-                st.caption(f"{label}: constante ({fmt_value(lo, {'pct': is_pct})})")
-                continue
-            sel_lo, sel_hi = st.slider(label, min_value=lo, max_value=hi, value=(lo, hi),
-                                        key=f"{key_prefix}_mflt_{key}")
-            if sel_lo > lo + 1e-6 or sel_hi < hi - 1e-6:
-                for i, m in enumerate(matches):
-                    v = m["metrics"].get(key)
-                    if v is None or v < sel_lo - 1e-6 or v > sel_hi + 1e-6:
-                        mask[i] = False
+    rows = []
+    for key, col, label, c, is_pct in metrics_in_cat:
+        vals = [m["metrics"].get(key) for m in matches if m["metrics"].get(key) is not None]
+        if not vals:
+            continue
+        avg_val = _stats.mean(vals)
+        meta = CAT_BY_KEY[key]
+        row = {"Métrica": label, "Valor": fmt_value(avg_val, meta)}
+        bench = league_benchmarks.get(key)
+        if bench:
+            rank, n, percentile = value_to_rank(avg_val, bench["values"])
+            row["Percentil"] = percentile
+            row["Ranking en LaLiga"] = f"{rank}º de {n}"
+        else:
+            row["Percentil"] = None
+            row["Ranking en LaLiga"] = "sin comparativa de liga"
+        rows.append(row)
 
-    return [m for m, keep in zip(matches, mask) if keep]
+    if not rows:
+        st.info("No hay datos suficientes en esta categoría para los partidos seleccionados.")
+        return
+
+    df_report = pd.DataFrame(rows).sort_values(
+        "Percentil", ascending=False, na_position="last"
+    ).drop(columns="Percentil")
+    st.dataframe(df_report, use_container_width=True, hide_index=True)
+
