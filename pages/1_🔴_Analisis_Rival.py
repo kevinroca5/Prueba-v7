@@ -4,7 +4,7 @@ import streamlit as st
 
 from common import (
     CAT_BY_KEY, CAT_LABELS, CAT_ORDER, METRICS, fmt_value, value_to_rank,
-    compute_league_benchmarks, render_team_picker_and_updater,
+    get_combined_league_benchmarks, render_team_picker_and_updater,
     render_match_selection_sidebar, render_metric_category_report,
 )
 
@@ -15,7 +15,7 @@ st.caption("Fortalezas y debilidades automáticas de un equipo frente a la media
            "a partir de los partidos que selecciones.")
 
 team_name, matches, has_coach_column = render_team_picker_and_updater(key_prefix="rival")
-league_benchmarks = compute_league_benchmarks()
+league_benchmarks = get_combined_league_benchmarks()
 
 selected_matches, total_matches = render_match_selection_sidebar(team_name, matches, key_prefix="rival")
 if not selected_matches:
@@ -77,9 +77,9 @@ st.divider()
 # Fortalezas y debilidades automáticas (vs media de LaLiga, con percentil/ranking)
 # ---------------------------------------------------------------------------
 st.subheader("🔎 Fortalezas y debilidades automáticas (vs. media de LaLiga)")
-st.caption("Se calculan sobre las métricas de los partidos seleccionados que tienen un "
-           f"equivalente directo a nivel de equipo en LaLiga 24/25 ({len(league_benchmarks)} "
-           f"de {len(METRICS)} métricas).")
+st.caption("Comparado contra la media real de los 20 equipos de LaLiga, calculada a partir "
+           f"de sus propios partidos ({len(league_benchmarks)} de {len(METRICS)} métricas "
+           "tienen comparativa disponible).")
 
 standouts = []
 for key, bench in league_benchmarks.items():

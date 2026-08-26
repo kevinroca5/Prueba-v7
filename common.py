@@ -154,31 +154,119 @@ def load_league_data():
         return json.load(f)
 
 
+def _normalize_col(c: str) -> str:
+    return c.lower().replace(" ", "").replace("_", "")
+
+
+# Manual overrides for match-metrics whose column name doesn't match the team-season
+# dataset exactly (or at all) but does have a genuine equivalent:
+#   - str value  -> reuse another match-metric's benchmark (same underlying concept,
+#                   alternate column name from the data source).
+#   - list value -> sum these team-season columns per team before computing the benchmark
+#                   (e.g. a total split across two zones in the team dataset).
+MANUAL_LEAGUE_LINKS = {
+    "fwdpass_pct": {"alias_of": "pct_passfwd"},
+    "progcarry": {"sum_cols": ["ProgCarr mc", "ProgCarr mp"]},
+}
+
+
 @st.cache_data
 def compute_league_benchmarks():
-    """Mean/std/sorted values (per-match basis) for every match-metric that has an exact
-    equivalent column at team-season level in data.json."""
+    """Mean/std/sorted values across the 20 LaLiga teams, computed directly from their own
+    match-level CSVs in data/matches/ (each team's season average per metric). This gives
+    genuine benchmarks for ALL match metrics, not just the ones that happen to share an
+    exact column name with the separate team-season dataset."""
+    team_files = list_team_files()
+    per_team_averages = {key: [] for key, col, label, cat, is_pct in METRICS if col}
+
+    for path_str in team_files.values():
+        try:
+            _, team_matches, _ = load_matches_from_path(path_str)
+        except Exception:
+            continue
+        for key in per_team_averages:
+            vals = [m["metrics"].get(key) for m in team_matches if m["metrics"].get(key) is not None]
+            if vals:
+                per_team_averages[key].append(statistics.mean(vals))
+
+    benchmarks = {}
+    for key, team_avgs in per_team_averages.items():
+        if len(team_avgs) >= 2:
+            benchmarks[key] = {
+                "mean": statistics.mean(team_avgs),
+                "std": statistics.pstdev(team_avgs) or 1.0,
+                "values": sorted(team_avgs),
+                "n_teams": len(team_avgs),
+            }
+    return benchmarks
+
+
+@st.cache_data
+def compute_league_benchmarks_legacy_crosswalk():
+    """Old approach kept only as a fallback: derives benchmarks from the separate
+    team-season dataset (data.json) by matching column names. Only used for metrics that
+    compute_league_benchmarks() (real match data) couldn't cover, e.g. if the team library
+    in data/matches/ doesn't yet have all 20 teams."""
     league_data = load_league_data()
     team_col_to_key = {m["col"]: m["key"] for m in league_data["catalog"]}
+    team_col_normalized = {_normalize_col(m["col"]): m["key"] for m in league_data["catalog"]}
     team_cat_by_key = {m["key"]: m for m in league_data["catalog"]}
+
+    def per_match_values(tkey, tmeta):
+        vals = []
+        for t in league_data["teams"]:
+            v = t["metrics"].get(tkey)
+            if v is None:
+                continue
+            if not tmeta["pct"] and not tmeta["p90"]:
+                gm = t.get("gm") or 38
+                v = v / gm
+            vals.append(v)
+        return vals
+
     benchmarks = {}
     for key, col, label, cat, is_pct in METRICS:
-        if col and col in team_col_to_key:
-            tkey = team_col_to_key[col]
+        if not col:
+            continue
+        tkey = team_col_to_key.get(col) or team_col_normalized.get(_normalize_col(col))
+        if tkey:
             tmeta = team_cat_by_key[tkey]
-            vals = []
-            for t in league_data["teams"]:
-                v = t["metrics"].get(tkey)
-                if v is None:
-                    continue
-                if not tmeta["pct"] and not tmeta["p90"]:
-                    gm = t.get("gm") or 38
-                    v = v / gm
-                vals.append(v)
+            vals = per_match_values(tkey, tmeta)
             if len(vals) >= 2:
                 benchmarks[key] = {"mean": statistics.mean(vals), "std": statistics.pstdev(vals) or 1.0,
                                     "values": sorted(vals)}
+
+    for key, link in MANUAL_LEAGUE_LINKS.items():
+        if key in benchmarks:
+            continue
+        if "alias_of" in link and link["alias_of"] in benchmarks:
+            benchmarks[key] = benchmarks[link["alias_of"]]
+        elif "sum_cols" in link:
+            sum_keys = [team_col_to_key.get(c) for c in link["sum_cols"]]
+            if all(sum_keys):
+                vals = []
+                for t in league_data["teams"]:
+                    parts = [t["metrics"].get(k) for k in sum_keys]
+                    if any(p is None for p in parts):
+                        continue
+                    total = sum(parts)
+                    gm = t.get("gm") or 38
+                    vals.append(total / gm)
+                if len(vals) >= 2:
+                    benchmarks[key] = {"mean": statistics.mean(vals), "std": statistics.pstdev(vals) or 1.0,
+                                        "values": sorted(vals)}
     return benchmarks
+
+
+def get_combined_league_benchmarks():
+    """Real match-data benchmarks (preferred) merged with the legacy crosswalk as a
+    fallback for any metric that couldn't be computed from the real files (e.g. a team
+    file missing that particular column)."""
+    real = compute_league_benchmarks()
+    legacy = compute_league_benchmarks_legacy_crosswalk()
+    combined = dict(legacy)
+    combined.update(real)  # real data always wins when available
+    return combined
 
 
 def value_to_rank(value, sorted_league_values):
@@ -408,8 +496,10 @@ def render_metric_category_report(matches, league_benchmarks, key_prefix):
     cat = st.selectbox("Categoría de métricas", CAT_ORDER,
                         format_func=lambda c: CAT_LABELS[c], key=f"{key_prefix}_filtercat")
     metrics_in_cat = [m for m in METRICS if m[3] == cat]
-    st.caption(f"{len(metrics_in_cat)} métricas en esta categoría · calculadas sobre "
-               f"{len(matches)} partidos seleccionados")
+    n_benchmarked_in_cat = sum(1 for m in metrics_in_cat if m[0] in league_benchmarks)
+    st.caption(f"{len(metrics_in_cat)} métricas en esta categoría ({n_benchmarked_in_cat} con "
+               f"comparativa de liga) · calculadas sobre {len(matches)} partidos seleccionados. "
+               f"La comparativa de liga sale de los partidos reales de los 20 equipos de LaLiga.")
 
     rows = []
     for key, col, label, c, is_pct in metrics_in_cat:

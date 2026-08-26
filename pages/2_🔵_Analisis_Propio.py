@@ -3,7 +3,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from common import (
-    CAT_BY_KEY, CAT_LABELS, CAT_ORDER, METRICS, compute_league_benchmarks,
+    CAT_BY_KEY, CAT_LABELS, CAT_ORDER, METRICS, get_combined_league_benchmarks,
     render_team_picker_and_updater, render_match_selection_sidebar,
     render_metric_category_report,
 )
@@ -14,7 +14,7 @@ st.title("🔵 Análisis Propio")
 st.caption("Cómo va evolucionando tu equipo partido a partido, en las métricas que elijas.")
 
 team_name, matches, has_coach_column = render_team_picker_and_updater(key_prefix="propio")
-league_benchmarks = compute_league_benchmarks()
+league_benchmarks = get_combined_league_benchmarks()
 selected_matches, total_matches = render_match_selection_sidebar(team_name, matches, key_prefix="propio")
 if not selected_matches:
     st.warning("No hay partidos seleccionados con estos filtros.")
